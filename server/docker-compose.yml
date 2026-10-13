@@ -1,0 +1,46 @@
+# 한국 관제 서버 테스트 환경 (서버 + PostgreSQL + MQTT 브로커 + 가상 로봇)
+#   docker compose up -d --build     →  http://localhost:8000
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: control
+      POSTGRES_USER: control
+      POSTGRES_PASSWORD: control-pw
+    volumes: [dbdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U control -d control"]
+      interval: 5s
+      retries: 10
+
+  mqtt:
+    image: eclipse-mosquitto:2
+    ports: ["1883:1883"]
+    volumes: [./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro]
+
+  server:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+psycopg://control:control-pw@db:5432/control
+      ROBOT_LINK: mqtt
+      MQTT_HOST: mqtt
+    ports: ["8000:8000"]
+    depends_on:
+      db: {condition: service_healthy}
+      mqtt: {condition: service_started}
+    restart: unless-stopped
+
+  # 실제 로봇이 오기 전까지 가상 로봇 5대 (실로봇 연결 시 이 서비스는 빼면 됨)
+  simulator:
+    build: .
+    command: ["python", "-m", "simulator.run_mqtt"]
+    environment:
+      MQTT_HOST: mqtt
+    depends_on: [mqtt, server]
+    restart: unless-stopped
+
+volumes:
+  dbdata:

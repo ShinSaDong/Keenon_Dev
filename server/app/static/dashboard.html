@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>한국 관제 서버 · 테스트 대시보드</title>
+<style>
+  :root { --bg:#f5f6f8; --card:#fff; --ink:#1d2433; --muted:#5b6577; --line:#dfe3ea; --serving:#e07a2e; --hotel:#2e6bd6; --ok:#1e7a46; --bad:#b3261e; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", "Malgun Gothic", sans-serif; background:var(--bg); color:var(--ink); }
+  header { display:flex; flex-wrap:wrap; gap:12px; align-items:center; padding:12px 16px; background:#14213d; color:#fff; }
+  header h1 { font-size:18px; margin:0 12px 0 0; }
+  header .pill { font-size:12px; padding:3px 8px; border-radius:10px; background:#ffffff22; }
+  select, button { font:inherit; padding:6px 10px; border-radius:8px; border:1px solid var(--line); background:#fff; }
+  button { cursor:pointer; }
+  button.primary { background:#1f4e99; color:#fff; border-color:#1f4e99; }
+  main { display:grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap:16px; padding:16px; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; min-width:0; }
+  .card h2 { font-size:15px; margin:0 0 8px; }
+  canvas { width:100%; height:auto; border-radius:8px; border:1px solid var(--line); background:#eee; cursor:crosshair; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:6px 4px; border-bottom:1px solid var(--line); white-space:nowrap; }
+  th { color:var(--muted); font-weight:600; }
+  .tbl { overflow-x:auto; }
+  .on { color:var(--ok); font-weight:600; } .off { color:var(--muted); } .err { color:var(--bad); }
+  .hint { font-size:12px; color:var(--muted); margin:6px 0 0; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px; }
+  #toast { position:fixed; bottom:16px; left:50%; transform:translateX(-50%); background:#1d2433; color:#fff; padding:8px 14px; border-radius:8px; font-size:13px; opacity:0; transition:opacity .2s; }
+</style>
+</head>
+<body>
+<header>
+  <h1>한국 관제 서버 · 테스트</h1>
+  <select id="store"></select>
+  <span class="pill" id="link">연결 확인 중</span>
+  <span class="pill">데이터 저장 위치: 이 서버(국내)</span>
+  <a class="pill" style="color:#fff" href="/docs" target="_blank">API 문서</a>
+</header>
+<main>
+  <section class="card">
+    <h2>맵 · 실시간 위치</h2>
+    <div class="row">
+      <label>호출 로봇 <select id="callRobot"><option value="">자동 배정</option></select></label>
+    </div>
+    <canvas id="map" width="800" height="600"></canvas>
+    <p class="hint">맵의 목적지 점(초록)을 클릭하면 로봇을 호출합니다. 주황: 서빙 로봇, 파랑: 호텔 로봇.</p>
+  </section>
+  <section style="display:flex; flex-direction:column; gap:16px; min-width:0">
+    <div class="card">
+      <h2>로봇</h2>
+      <div class="tbl"><table id="robots"><thead><tr><th>이름</th><th>상태</th><th>배터리</th><th>작업 상태</th><th>위치</th><th></th></tr></thead><tbody></tbody></table></div>
+    </div>
+    <div class="card">
+      <h2>최근 작업</h2>
+      <div class="tbl"><table id="tasks"><thead><tr><th>요청</th><th>로봇</th><th>목적지</th><th>상태</th><th>남은 거리</th><th>요청자</th><th></th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+</main>
+<div id="toast"></div>
+<script>
+const TASK = {0:'실패',1:'대기열',2:'호출 중',3:'이동 중',4:'완료',5:'취소',6:'도착',7:'대기'};
+const WS = {1:'작업 중',2:'대기',3:'조작 중',4:'복귀/스케줄',5:'충전 중',6:'측위 중'};
+let scenes = [], data = null, storeId = null, img = new Image(), imgScene = null;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function toast(t) { const e=$('toast'); e.textContent=t; e.style.opacity=1; clearTimeout(e._t); e._t=setTimeout(()=>e.style.opacity=0, 2500); }
+
+async function api(path, body) {
+  const r = await fetch(path, body ? {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)} : {});
+  const j = await r.json();
+  if (j && j.code && j.code !== 610000) throw new Error(j.msg || ('code ' + j.code));
+  return j;
+}
+
+function scene() { return scenes.find(s => s.storeId === storeId); }
+
+function px(sc, x, y) { return [(x - sc.originX) / sc.resolution, sc.height - (y - sc.originY) / sc.resolution]; }
+
+function draw() {
+  const sc = scene(); if (!sc || !data) return;
+  const cv = $('map'), g = cv.getContext('2d');
+  const k = cv.width / sc.width; cv.height = sc.height * k;
+  g.imageSmoothingEnabled = false;
+  if (img.complete && imgScene === sc.sceneCode) g.drawImage(img, 0, 0, cv.width, cv.height);
+  g.font = '12px system-ui, sans-serif'; g.textAlign = 'center';
+  for (const p of sc.points) {
+    if (p.x == null) continue;
+    const [x, y] = px(sc, p.x, p.y);
+    g.fillStyle = p.kind === 'pickup' ? '#7b4fd1' : '#2a9d8f';
+    g.beginPath(); g.arc(x*k, y*k, 6, 0, Math.PI*2); g.fill();
+    g.fillStyle = '#1d2433'; g.fillText(p.name, x*k, y*k - 10);
+  }
+  for (const r of data.robots.filter(r => r.storeId === storeId && r.x != null)) {
+    const [x, y] = px(sc, r.x, r.y), c = r.kind === 'hotel' ? '#2e6bd6' : '#e07a2e';
+    g.globalAlpha = r.online ? 1 : 0.35;
+    g.fillStyle = c; g.beginPath(); g.arc(x*k, y*k, 12, 0, Math.PI*2); g.fill();
+    g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke();
+    const a = r.angle || 0; g.fillStyle = '#fff'; g.beginPath();
+    g.moveTo(x*k + Math.cos(a)*9, y*k - Math.sin(a)*9);
+    g.lineTo(x*k + Math.cos(a+2.4)*6, y*k - Math.sin(a+2.4)*6);
+    g.lineTo(x*k + Math.cos(a-2.4)*6, y*k - Math.sin(a-2.4)*6); g.fill();
+    g.fillStyle = c; g.fillText(r.name, x*k, y*k + 26); g.globalAlpha = 1;
+  }
+}
+
+function render() {
+  const link = data.link; $('link').textContent = '로봇 연결: ' + link.link + (link.connected === false ? ' (끊김)' : link.connected ? ' (연결됨)' : '');
+  const robots = data.robots.filter(r => r.storeId === storeId);
+  const sel = $('callRobot'), cur = sel.value;
+  sel.innerHTML = '<option value="">자동 배정</option>' + robots.map(r => `<option value="${esc(r.sn)}">${esc(r.name)}</option>`).join('');
+  sel.value = robots.some(r => r.sn === cur) ? cur : '';
+  $('robots').tBodies[0].innerHTML = robots.map(r => `<tr>
+    <td>${esc(r.name)}<br><small class="off">${esc(r.sn)} · ${esc(r.model)}</small></td>
+    <td class="${r.online ? 'on' : 'off'}">${r.online ? '온라인' : '오프라인'}${r.onlineType ? ' · ' + esc(r.onlineType) : ''}</td>
+    <td>${r.battery == null ? '-' : r.battery + '%'}${r.charging ? ' ⚡' : ''}</td>
+    <td>${WS[r.workState] ?? '-'}${r.canBeCalled ? ' · 호출 가능' : ''}</td>
+    <td>${r.x == null ? '-' : r.x.toFixed(1) + ', ' + r.y.toFixed(1)}</td>
+    <td>${r.online ? `<button data-ret="${esc(r.sn)}">복귀</button>` : ''}</td></tr>`).join('');
+  const tasks = data.tasks.filter(t => t.storeId === storeId).slice(0, 12);
+  const name = (sn) => (data.robots.find(r => r.sn === sn) || {}).name || sn || '-';
+  $('tasks').tBodies[0].innerHTML = tasks.map(t => `<tr>
+    <td>${esc(t.createdAt.slice(11))}</td><td>${esc(name(t.robotSn))}</td><td>${esc(t.point)}</td>
+    <td class="${t.status === 0 ? 'err' : ''}">${TASK[t.status] ?? t.status}${t.errorCode ? ' (' + t.errorCode + ')' : ''}</td>
+    <td>${t.remaining == null ? '-' : t.remaining.toFixed(1) + ' m'}</td><td>${esc(t.requestedBy)}</td>
+    <td>${[0,4,5].includes(t.status) ? '' : `<button data-cancel="${esc(t.taskNo)}">취소</button>`}</td></tr>`).join('');
+  draw();
+}
+
+async function poll() {
+  try { data = await api('/admin/api/overview'); render(); } catch (e) { $('link').textContent = '서버 응답 없음'; }
+}
+
+function setStore(id) {
+  storeId = id; const sc = scene();
+  if (sc && imgScene !== sc.sceneCode) { imgScene = sc.sceneCode; img = new Image(); img.onload = draw; img.src = `/admin/api/scenes/${sc.sceneCode}/map.png`; }
+  if (data) render();
+}
+
+$('map').addEventListener('click', async (e) => {
+  const sc = scene(); if (!sc) return;
+  const cv = $('map'), rect = cv.getBoundingClientRect(), k = cv.width / sc.width;
+  const cx = (e.clientX - rect.left) * cv.width / rect.width, cy = (e.clientY - rect.top) * cv.height / rect.height;
+  let best = null, bd = 1e9;
+  for (const p of sc.points) { if (p.x == null) continue; const [x, y] = px(sc, p.x, p.y); const d = Math.hypot(x*k - cx, y*k - cy); if (d < bd) { bd = d; best = p; } }
+  if (!best || bd > 25) return;
+  try { const r = await api('/admin/api/call', {storeId, uuid: best.uuid, robotSn: $('callRobot').value}); toast(`호출 접수: ${best.name}`); poll(); }
+  catch (err) { toast('호출 실패: ' + err.message); }
+});
+
+document.addEventListener('click', async (e) => {
+  const ret = e.target.dataset?.ret, cancel = e.target.dataset?.cancel;
+  try {
+    if (ret) { await api('/admin/api/return', {storeId, robotSn: ret}); toast('복귀 명령 전송'); }
+    if (cancel) { await api('/admin/api/cancel', {taskNo: cancel}); toast('취소 요청'); }
+  } catch (err) { toast('실패: ' + err.message); }
+});
+
+$('store').addEventListener('change', (e) => setStore(e.target.value));
+
+(async () => {
+  scenes = await api('/admin/api/scenes');
+  data = await api('/admin/api/overview');
+  $('store').innerHTML = data.stores.map(s => `<option value="${esc(s.storeId)}">${esc(s.storeName)}</option>`).join('');
+  setStore(data.stores[0]?.storeId);
+  setInterval(poll, 500);
+})();
+</script>
+</body>
+</html>
