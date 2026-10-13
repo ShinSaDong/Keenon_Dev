@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:keenon_control/api/keenon_api.dart';
+import 'package:keenon_control/api/mock_api.dart';
 import 'package:keenon_control/api/models.dart';
 import 'package:keenon_control/util/map_image.dart';
 
@@ -148,6 +149,39 @@ void main() {
       final out = toDisplayableImage(raw, width: 2, height: 2);
       expect(out, isNotNull);
       expect(out!.length, 54 + 8 * 2); // 행당 6바이트 → 8바이트 패딩
+    });
+  });
+
+  group('demo simulator', () {
+    test('호출하면 작업이 생기고 위치·마커를 조회할 수 있다', () async {
+      final api = MockRobotApi();
+      final stores = await api.getStores();
+      expect(stores, hasLength(2));
+      final robots = await api.getRobots(stores.first.storeId);
+      expect(robots.first.kind, RobotKind.serving);
+      final scenes = await api.getScenes(stores.first.storeId);
+      final points = await api.getPoints(scenes.first.sceneCode);
+      final r = await api.callRobot(storeId: stores.first.storeId, point: points.first, robotId: robots.first.robotId);
+      final st = await api.getTaskStatus(r.taskNo);
+      expect(st.status, 1);
+      expect(st.remainingDistance, greaterThan(0));
+      final loc = await api.getLocation(robots.first.robotId);
+      expect(loc.hasPosition, isTrue);
+      expect(api.markersFor(scenes.first.sceneCode), isNotEmpty);
+      // 바쁜 로봇은 다시 호출할 수 없다
+      expect(
+        api.callRobot(storeId: stores.first.storeId, point: points[1], robotId: robots.first.robotId),
+        throwsA(isA<KeenonApiException>()),
+      );
+      await api.cancelTask(r.taskNo);
+      final canceled = await api.getTaskStatus(r.taskNo);
+      expect(canceled.status, 5);
+    });
+
+    test('호텔 로봇은 hotel 로 분류된다', () async {
+      final api = MockRobotApi();
+      final robots = await api.getRobots('DEMO-S002');
+      expect(robots.every((r) => r.kind == RobotKind.hotel), isTrue);
     });
   });
 }

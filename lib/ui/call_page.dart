@@ -13,12 +13,14 @@ class CallPage extends StatefulWidget {
     this.robotId,
     this.robotName,
     this.initialSceneCode,
+    this.robotKind,
   });
 
   final Store store;
   final String? robotId;
   final String? robotName;
   final String? initialSceneCode;
+  final RobotKind? robotKind;
 
   @override
   State<CallPage> createState() => _CallPageState();
@@ -42,7 +44,8 @@ class _CallPageState extends State<CallPage> {
     super.didChangeDependencies();
     if (_initialized) return;
     _initialized = true;
-    _robotType = AppScope.read(context).settings.robotType;
+    final k = widget.robotKind;
+    _robotType = k == null ? AppScope.read(context).settings.robotType : (k == RobotKind.hotel ? 'hotel' : 'food');
     // 빌드 단계가 끝난 뒤 불러오기 시작
     Future.microtask(_loadScenes);
   }
@@ -132,7 +135,10 @@ class _CallPageState extends State<CallPage> {
             taskNo: r.taskNo,
             title: '호출 → ${point.displayName}',
             robotName: widget.robotName,
+            robotId: widget.robotId,
             initialQueue: r.waitQueuing,
+            sceneCode: _scene?.sceneCode,
+            robotKind: widget.robotKind ?? (_robotType == 'hotel' ? RobotKind.hotel : RobotKind.serving),
           ),
         ),
       );

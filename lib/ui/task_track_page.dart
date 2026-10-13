@@ -6,6 +6,7 @@ import '../api/labels.dart';
 import '../api/models.dart';
 import '../app_state.dart';
 import 'common.dart';
+import 'map_page.dart';
 
 /// 호출/복귀 작업 상태를 3초 간격으로 조회한다 (Keenon 권장 조회 간격 약 3초).
 class TaskTrackPage extends StatefulWidget {
@@ -14,13 +15,21 @@ class TaskTrackPage extends StatefulWidget {
     required this.taskNo,
     required this.title,
     this.robotName,
+    this.robotId,
     this.initialQueue,
+    this.sceneCode,
+    this.robotKind = RobotKind.serving,
   });
 
   final String taskNo;
   final String title;
   final String? robotName;
+  final String? robotId;
   final int? initialQueue;
+
+  /// 지정하면 '맵에서 이동 보기' 버튼을 표시
+  final String? sceneCode;
+  final RobotKind robotKind;
 
   @override
   State<TaskTrackPage> createState() => _TaskTrackPageState();
@@ -156,6 +165,29 @@ class _TaskTrackPageState extends State<TaskTrackPage> {
             Text('조회 오류: $_error', style: TextStyle(color: theme.colorScheme.error)),
           ],
           const SizedBox(height: 16),
+          if (widget.sceneCode != null && widget.sceneCode!.isNotEmpty && _trackRobotId(s) != null) ...[
+            FilledButton.tonalIcon(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => MapPage(
+                    title: '${widget.robotName ?? _trackRobotId(s)} 이동',
+                    sceneCode: widget.sceneCode!,
+                    robots: [
+                      MapRobot(
+                        id: _trackRobotId(s)!,
+                        name: widget.robotName ?? _trackRobotId(s)!,
+                        kind: widget.robotKind,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              icon: const Icon(Icons.map),
+              label: const Text('맵에서 이동 보기'),
+            ),
+            const SizedBox(height: 8),
+          ],
           if (!finished)
             OutlinedButton.icon(
               onPressed: _canceling ? null : _cancel,
@@ -179,6 +211,12 @@ class _TaskTrackPageState extends State<TaskTrackPage> {
         ],
       ),
     );
+  }
+
+  String? _trackRobotId(TaskStatus? s) {
+    if (s != null && s.robotId.isNotEmpty) return s.robotId;
+    final id = widget.robotId;
+    return (id == null || id.isEmpty) ? null : id;
   }
 
   IconData _iconFor(int? s) {

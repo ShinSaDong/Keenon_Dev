@@ -6,12 +6,47 @@ import '../app_state.dart';
 import 'call_page.dart';
 import 'common.dart';
 import 'history_page.dart';
+import 'map_page.dart';
+import 'robot_avatar.dart';
 import 'robot_detail_page.dart';
 
 class RobotListPage extends StatelessWidget {
   const RobotListPage({super.key, required this.store});
 
   final Store store;
+
+  /// 로봇 상태에서 현재 씬을 찾아 매장 전체 맵을 연다
+  Future<void> _openStoreMap(BuildContext context, List<Robot> robots) async {
+    final api = AppScope.read(context).api;
+    String? scene;
+    for (final r in robots.where((r) => r.online)) {
+      try {
+        final st = await api.getRobotStatus(r.robotId);
+        if (st != null && st.sceneCode.isNotEmpty) {
+          scene = st.sceneCode;
+          break;
+        }
+      } catch (_) {
+        // 다음 로봇으로
+      }
+    }
+    if (!context.mounted) return;
+    if (scene == null) {
+      showSnack(context, '현재 씬을 확인할 수 있는 온라인 로봇이 없습니다', error: true);
+      return;
+    }
+    final sceneCode = scene;
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => MapPage(
+          title: '${store.storeName} 맵',
+          sceneCode: sceneCode,
+          robots: [for (final r in robots) MapRobot(id: r.robotId, name: r.displayName, kind: r.kind)],
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -54,9 +89,20 @@ class RobotListPage extends StatelessWidget {
                     if (i == 0) {
                       final online = robots.where((r) => r.online).length;
                       return Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                        child: Text('로봇 ${robots.length}대 · 온라인 $online대',
-                            style: Theme.of(context).textTheme.titleSmall),
+                        padding: const EdgeInsets.fromLTRB(16, 8, 8, 4),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text('로봇 ${robots.length}대 · 온라인 $online대',
+                                  style: Theme.of(context).textTheme.titleSmall),
+                            ),
+                            TextButton.icon(
+                              onPressed: () => _openStoreMap(context, robots),
+                              icon: const Icon(Icons.map),
+                              label: const Text('매장 맵'),
+                            ),
+                          ],
+                        ),
                       );
                     }
                     final r = robots[i - 1];
@@ -94,10 +140,7 @@ class _RobotTile extends StatelessWidget {
     ].join(' · ');
     return ListTile(
       onTap: onTap,
-      leading: CircleAvatar(
-        backgroundColor: r.online ? Colors.green.shade100 : Colors.grey.shade300,
-        child: Icon(Icons.smart_toy, color: r.online ? Colors.green.shade800 : Colors.grey.shade600),
-      ),
+      leading: RobotAvatar(kind: r.kind, size: 52, online: r.online),
       title: Row(
         children: [
           Flexible(child: Text(r.displayName, overflow: TextOverflow.ellipsis)),
@@ -108,7 +151,7 @@ class _RobotTile extends StatelessWidget {
           ),
         ],
       ),
-      subtitle: Text(details.isEmpty ? r.robotId : '${r.robotId}\n$details'),
+      subtitle: Text('${robotKindLabel(r.kind)} · ${r.robotId}${details.isEmpty ? '' : '\n$details'}'),
       isThreeLine: details.isNotEmpty,
       trailing: BatteryText(power: r.power),
     );

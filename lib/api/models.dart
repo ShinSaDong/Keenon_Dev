@@ -107,6 +107,19 @@ class Robot {
       );
 
   String get displayName => robotName.isEmpty ? robotId : robotName;
+
+  /// W 시리즈(호텔) 또는 이름에 '호텔'이 들어가면 호텔 로봇, 그 외는 서빙 로봇으로 표시
+  RobotKind get kind => robotKindOf(model: robotModel, name: robotName);
+}
+
+enum RobotKind { serving, hotel }
+
+RobotKind robotKindOf({String model = '', String name = ''}) {
+  final m = model.trim().toUpperCase();
+  if (m.startsWith('W') || name.contains('호텔') || name.toLowerCase().contains('hotel')) {
+    return RobotKind.hotel;
+  }
+  return RobotKind.serving;
 }
 
 class RobotStatus {

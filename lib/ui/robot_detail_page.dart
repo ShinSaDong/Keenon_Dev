@@ -5,6 +5,7 @@ import '../app_state.dart';
 import 'call_page.dart';
 import 'common.dart';
 import 'map_page.dart';
+import 'robot_avatar.dart';
 import 'task_track_page.dart';
 
 class RobotDetailPage extends StatelessWidget {
@@ -13,7 +14,7 @@ class RobotDetailPage extends StatelessWidget {
   final Store store;
   final Robot robot;
 
-  Future<void> _returnToOrigin(BuildContext context) async {
+  Future<void> _returnToOrigin(BuildContext context, String? sceneCode) async {
     final ok = await confirmDialog(
       context,
       title: '원점 복귀',
@@ -32,7 +33,14 @@ class RobotDetailPage extends StatelessWidget {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => TaskTrackPage(taskNo: r.taskNo, title: '원점 복귀', robotName: robot.displayName),
+          builder: (_) => TaskTrackPage(
+            taskNo: r.taskNo,
+            title: '원점 복귀',
+            robotName: robot.displayName,
+            robotId: robot.robotId,
+            sceneCode: sceneCode,
+            robotKind: robot.kind,
+          ),
         ),
       );
     } catch (e) {
@@ -63,6 +71,23 @@ class RobotDetailPage extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        Row(
+                          children: [
+                            RobotAvatar(kind: robot.kind, size: 88, online: online),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(robot.displayName, style: Theme.of(context).textTheme.titleLarge),
+                                  const SizedBox(height: 4),
+                                  Text('${robotKindLabel(robot.kind)} 로봇', style: TextStyle(color: robotKindColor(robot.kind), fontWeight: FontWeight.w600)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 16),
                         Wrap(
                           spacing: 8,
                           runSpacing: 8,
@@ -116,6 +141,7 @@ class RobotDetailPage extends StatelessWidget {
                         robotId: robot.robotId,
                         robotName: robot.displayName,
                         initialSceneCode: status?.sceneCode,
+                        robotKind: robot.kind,
                       ),
                     ),
                   ),
@@ -124,7 +150,7 @@ class RobotDetailPage extends StatelessWidget {
                 ),
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
-                  onPressed: () => _returnToOrigin(context),
+                  onPressed: () => _returnToOrigin(context, status?.sceneCode),
                   icon: const Icon(Icons.home),
                   label: const Text('원점 복귀'),
                 ),
@@ -136,9 +162,9 @@ class RobotDetailPage extends StatelessWidget {
                             context,
                             MaterialPageRoute(
                               builder: (_) => MapPage(
-                                robotId: robot.robotId,
-                                robotName: robot.displayName,
+                                title: '${robot.displayName} 위치',
                                 sceneCode: status.sceneCode,
+                                robots: [MapRobot(id: robot.robotId, name: robot.displayName, kind: robot.kind)],
                               ),
                             ),
                           ),
