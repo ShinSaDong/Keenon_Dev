@@ -30,7 +30,7 @@ jobs:
             sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' "$M"
 
       - run: flutter pub get
-      - run: flutter analyze --no-fatal-infos--no-fatal-warnings
+      - run: flutter analyze --no-fatal-infos --no-fatal-warnings
       - run: flutter test
       - run: flutter build apk --release
 
