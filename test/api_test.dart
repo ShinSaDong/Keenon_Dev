@@ -169,7 +169,7 @@ void main() {
       expect(loc.hasPosition, isTrue);
       expect(api.markersFor(scenes.first.sceneCode), isNotEmpty);
       // 바쁜 로봇은 다시 호출할 수 없다
-      expect(
+      await expectLater(
         api.callRobot(storeId: stores.first.storeId, point: points[1], robotId: robots.first.robotId),
         throwsA(isA<KeenonApiException>()),
       );
